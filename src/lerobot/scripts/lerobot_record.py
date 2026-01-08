@@ -286,15 +286,19 @@ def record_loop(
                         | so101_leader.SO101Leader
                         | koch_leader.KochLeader
                         | omx_leader.OmxLeader
+                        | bi_so100_leader.BiSO100Leader  # 双臂主臂
                     ),
                 )
             ),
             None,
         )
 
-        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name == "lekiwi_client"):
+        # 支持的移动机器人: LeKiwi, Cobot (本地), CobotClient (远程)
+        supported_mobile_robots = ("lekiwi_client", "cobot", "cobot_client")
+        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name in supported_mobile_robots):
             raise ValueError(
-                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. Currently only supported for LeKiwi robot."
+                f"For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. "
+                f"Supported mobile robots: {supported_mobile_robots}"
             )
 
     # Reset policy and processor if they are provided
