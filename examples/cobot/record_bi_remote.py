@@ -188,7 +188,8 @@ def main():
                 fps=args.dataset_fps,
                 width=640,
                 height=480,
-                rotation=Cv2Rotation.NO_ROTATION
+                rotation=Cv2Rotation.NO_ROTATION,
+                fourcc="MJPG"
             )
         robot_config.cameras = custom_cameras
         print(f"使用自定义摄像头配置: {list(custom_cameras.keys())}")
@@ -253,11 +254,13 @@ def main():
         raise ValueError("设备连接失败!")
 
     print("\n🚀 开始录制!\n")
+    print("💡 提示: 按右键(→)需要终端窗口有焦点！\n")
     recorded_episodes = 0
 
     try:
         while recorded_episodes < args.dataset_num_episodes and not events["stop_recording"]:
             log_say(f"录制回合 {recorded_episodes + 1} / {args.dataset_num_episodes}", args.play_sounds)
+            print(f"🎬 录制中... ({args.dataset_episode_time_s}秒，按 → 结束)")
 
             # === Main record loop ===
             record_loop(
@@ -279,6 +282,7 @@ def main():
                 (recorded_episodes < args.dataset_num_episodes - 1) or events["rerecord_episode"]
             ):
                 log_say("重置环境", args.play_sounds)
+                print(f"⏳ 重置环境中... ({args.dataset_reset_time_s}秒，按 → 跳过)")
                 record_loop(
                     robot=robot,
                     events=events,

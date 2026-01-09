@@ -134,7 +134,8 @@ def main():
                 fps=args.fps,
                 width=args.width,
                 height=args.height,
-                rotation=Cv2Rotation.NO_ROTATION
+                rotation=Cv2Rotation.NO_ROTATION,
+                fourcc="MJPG"
             )
         robot_config.cameras = custom_cameras
         logging.info(f"使用自定义摄像头配置: {list(custom_cameras.keys())}")

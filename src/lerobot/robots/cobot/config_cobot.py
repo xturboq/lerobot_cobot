@@ -23,10 +23,10 @@ from ..config import RobotConfig
 def cobot_cameras_config() -> dict[str, CameraConfig]:
     return {
         "cam_front": OpenCVCameraConfig(
-            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION, fourcc="MJPG"
         ),
         "cam_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video1", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video2", fps=30, width=640, height=480, rotation=Cv2Rotation.ROTATE_180, fourcc="MJPG"
         ),
     }
 
