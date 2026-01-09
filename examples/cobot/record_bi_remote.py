@@ -40,9 +40,9 @@ Cobot 远程双臂遥操作录制脚本 (局域网模式)
            ...
 
 按键说明 (录制控制):
-    Enter      - 结束当前回合，保存并开始下一回合
-    Backspace  - 丢弃当前回合，重新录制
-    Escape     - 停止录制，保存所有数据
+    → (右方向键) - 结束当前回合，保存并开始下一回合
+    ← (左方向键) - 丢弃当前回合，重新录制
+    Escape       - 停止录制，保存所有数据
 
 按键说明 (底盘控制):
     W/S - 前进/后退
@@ -157,9 +157,9 @@ def main():
     print(f"采集频率: {args.dataset_fps} Hz")
     print(f"任务描述: {args.dataset_single_task}")
     print("\n【录制控制按键】")
-    print("  Enter      - 结束当前回合，保存并开始下一回合")
-    print("  Backspace  - 丢弃当前回合，重新录制")
-    print("  Escape     - 停止录制，保存所有数据")
+    print("  → (右方向键) - 结束当前回合，保存并开始下一回合")
+    print("  ← (左方向键) - 丢弃当前回合，重新录制")
+    print("  Escape       - 停止录制，保存所有数据")
     print("\n【底盘控制按键】")
     print("  W/S  - 前进/后退")
     print("  A/D  - 左移/右移")

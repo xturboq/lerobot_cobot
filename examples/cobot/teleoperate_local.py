@@ -53,7 +53,7 @@ def parse_args():
     # 摄像头配置 (用于可视化)
     parser.add_argument("--cam_front", type=str, default="/dev/video0",
                         help="前置摄像头设备")
-    parser.add_argument("--cam_wrist", type=str, default="/dev/video1",
+    parser.add_argument("--cam_wrist", type=str, default="/dev/video2",
                         help="腕部摄像头设备")
     parser.add_argument("--no_cameras", action="store_true",
                         help="禁用摄像头")
@@ -184,11 +184,13 @@ def main():
         cameras_config = {
             "cam_front": OpenCVCameraConfig(
                 index_or_path=args.cam_front, fps=args.fps, width=640, height=480,
-                rotation=Cv2Rotation.NO_ROTATION
+                rotation=Cv2Rotation.NO_ROTATION,
+                fourcc="MJPG"  # 使用MJPG压缩格式减少延迟
             ),
             "cam_wrist": OpenCVCameraConfig(
                 index_or_path=args.cam_wrist, fps=args.fps, width=640, height=480,
-                rotation=Cv2Rotation.NO_ROTATION
+                rotation=Cv2Rotation.ROTATE_180,
+                fourcc="MJPG"  # 使用MJPG压缩格式减少延迟
             ),
         }
     else:
@@ -287,7 +289,7 @@ def main():
             # 8. Rerun 可视化
             if args.display_data and not args.use_dummy:
                 obs = robot.get_observation()
-                log_rerun_data(observation=obs, action=action)
+                log_rerun_data(observation=obs, action=action, compress_images=True)
             
             # 9. 控制循环频率
             precise_sleep(max(1.0 / args.fps - (time.perf_counter() - t0), 0.0))
