@@ -10,9 +10,14 @@ Cobot 远程双臂遥操作录制脚本 (局域网模式)
 
 使用方式:
     1. 在机器人端 (Jetson) 运行:
+       # 双摄像头 (默认)
        python -m lerobot.robots.cobot.cobot_host
+       
+       # 单摄像头
+       python -m lerobot.robots.cobot.cobot_host --cameras cam_front:/dev/video0
 
     2. 在 PC 端运行 (参数风格类似 lerobot-record):
+       # 双摄像头 (默认)
        python examples/cobot/record_bi_remote.py \
            --robot.remote_ip=192.168.1.100 \
            --robot.id=cobot_remote \
@@ -27,6 +32,12 @@ Cobot 远程双臂遥操作录制脚本 (局域网模式)
            --dataset.episode_time_s=30 \
            --dataset.reset_time_s=20 \
            --dataset.fps=30
+       
+       # 单摄像头 (需与 Host 端配置一致)
+       python examples/cobot/record_bi_remote.py \
+           --robot.remote_ip=192.168.1.100 \
+           --robot.cameras cam_front:/dev/video0 \
+           ...
 
 按键说明 (录制控制):
     Enter      - 结束当前回合，保存并开始下一回合
@@ -40,6 +51,8 @@ Cobot 远程双臂遥操作录制脚本 (局域网模式)
     R/F - 加速/减速
 """
 
+from lerobot.cameras.configs import Cv2Rotation
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.processor import make_default_processors
@@ -87,6 +100,9 @@ def main():
     robot_group.add_argument("--robot.port_obs", type=int, default=5556,
                              dest="robot_port_obs",
                              help="ZMQ 观测端口 (默认: 5556)")
+    robot_group.add_argument("--robot.cameras", nargs="*", metavar="NAME:PATH",
+                             dest="robot_cameras",
+                             help="摄像头配置，格式: name:path (如 cam_front:/dev/video0)，需与 Host 端配置一致")
     
     # ============ Teleop 配置 (类似 --teleop.xxx) ============
     teleop_group = parser.add_argument_group('teleop', '主臂配置 (连接在PC端)')
@@ -158,6 +174,24 @@ def main():
         port_zmq_cmd=args.robot_port_cmd,
         port_zmq_observations=args.robot_port_obs,
     )
+    
+    # 处理摄像头配置 (需与 Host 端一致)
+    if args.robot_cameras is not None:
+        custom_cameras = {}
+        for cam_spec in args.robot_cameras:
+            if ":" not in cam_spec:
+                print(f"错误: 摄像头配置格式应为 name:path，收到: {cam_spec}")
+                return
+            name, path = cam_spec.split(":", 1)
+            custom_cameras[name] = OpenCVCameraConfig(
+                index_or_path=path,
+                fps=args.dataset_fps,
+                width=640,
+                height=480,
+                rotation=Cv2Rotation.NO_ROTATION
+            )
+        robot_config.cameras = custom_cameras
+        print(f"使用自定义摄像头配置: {list(custom_cameras.keys())}")
     
     leader_arm_config = BiSO100LeaderConfig(
         left_arm_port=args.teleop_left_port,
