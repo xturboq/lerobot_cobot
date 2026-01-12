@@ -286,15 +286,16 @@ def record_loop(
                         | so101_leader.SO101Leader
                         | koch_leader.KochLeader
                         | omx_leader.OmxLeader
+                        | bi_so100_leader.BiSO100Leader
                     ),
                 )
             ),
             None,
         )
 
-        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name == "lekiwi_client"):
+        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name in ["lekiwi_client", "dddbot_client"]):
             raise ValueError(
-                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. Currently only supported for LeKiwi robot."
+                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. Currently only supported for LeKiwi and dddbot robot."
             )
 
     # Reset policy and processor if they are provided
