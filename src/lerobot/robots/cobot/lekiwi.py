@@ -40,8 +40,9 @@ logger = logging.getLogger(__name__)
 class LeKiwi(Robot):
     """
     双臂 + 四轮麦克纳姆轮移动底盘
-    左总线: 左臂(7) + 底盘(4)
+    左总线: 左臂(7)
     右总线: 右臂(7)
+    底盘总线: 四轮麦克纳姆轮(4)
     """
 
     config_class = LeKiwiConfig
@@ -52,7 +53,7 @@ class LeKiwi(Robot):
         self.config = config
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
 
-        # 左总线: 左臂 + 底盘
+        # 左总线: 左臂
         self.left_bus = FeetechMotorsBus(
             port=self.config.left_port,
             motors={
@@ -64,7 +65,14 @@ class LeKiwi(Robot):
                 "arm_left_wrist_flex": Motor(5, "sts3215", norm_mode_body),
                 "arm_left_wrist_roll": Motor(6, "sts3215", norm_mode_body),
                 "arm_left_gripper": Motor(7, "sts3215", MotorNormMode.RANGE_0_100),
-                # 四轮麦克纳姆轮底盘
+            },
+            calibration=self.calibration,
+        )
+
+        # 底盘总线: 四轮麦克纳姆轮
+        self.chassis_bus = FeetechMotorsBus(
+            port=self.config.chassis_port,
+            motors={
                 "base_fl": Motor(21, "sts3215", MotorNormMode.RANGE_M100_100),  # 左前
                 "base_fr": Motor(22, "sts3215", MotorNormMode.RANGE_M100_100),  # 右前
                 "base_rl": Motor(23, "sts3215", MotorNormMode.RANGE_M100_100),  # 左后
@@ -90,7 +98,7 @@ class LeKiwi(Robot):
         )
 
         self.left_arm_motors = [m for m in self.left_bus.motors if m.startswith("arm_left_")]
-        self.base_motors = [m for m in self.left_bus.motors if m.startswith("base_")]
+        self.base_motors = [m for m in self.chassis_bus.motors if m.startswith("base_")]
         self.right_arm_motors = [m for m in self.right_bus.motors if m.startswith("arm_right_")]
         self.cameras = make_cameras_from_configs(config.cameras)
 
@@ -145,7 +153,7 @@ class LeKiwi(Robot):
     @property
     def is_connected(self) -> bool:
         cams_ok = all(cam.is_connected for cam in self.cameras.values())
-        return self.left_bus.is_connected and self.right_bus.is_connected and cams_ok
+        return self.left_bus.is_connected and self.right_bus.is_connected and self.chassis_bus.is_connected and cams_ok
 
     def connect(self, calibrate: bool = True) -> None:
         if self.is_connected:
@@ -153,6 +161,7 @@ class LeKiwi(Robot):
 
         self.left_bus.connect()
         self.right_bus.connect()
+        self.chassis_bus.connect()
         if not self.is_calibrated and calibrate:
             logger.info(
                 "Mismatch between calibration values in the motor and the calibration file or no calibration file found"
@@ -167,7 +176,7 @@ class LeKiwi(Robot):
 
     @property
     def is_calibrated(self) -> bool:
-        return self.left_bus.is_calibrated and self.right_bus.is_calibrated
+        return self.left_bus.is_calibrated and self.right_bus.is_calibrated and self.chassis_bus.is_calibrated
 
     def calibrate(self) -> None:
         """
@@ -183,7 +192,7 @@ class LeKiwi(Robot):
                 f"or type 'c' and press ENTER to run calibration: "
             )
             if user_input.strip().lower() != "c":
-                logger.info("Writing existing calibration to both buses")
+                logger.info("Writing existing calibration to all buses")
 
                 calib_left = {k: v for k, v in self.calibration.items() if k in self.left_bus.motors}
                 self.left_bus.write_calibration(calib_left, cache=False)
@@ -192,6 +201,10 @@ class LeKiwi(Robot):
                 calib_right = {k: v for k, v in self.calibration.items() if k in self.right_bus.motors}
                 self.right_bus.write_calibration(calib_right, cache=False)
                 self.right_bus.calibration = calib_right
+
+                calib_chassis = {k: v for k, v in self.calibration.items() if k in self.chassis_bus.motors}
+                self.chassis_bus.write_calibration(calib_chassis, cache=False)
+                self.chassis_bus.calibration = calib_chassis
 
                 return
 
@@ -205,20 +218,25 @@ class LeKiwi(Robot):
         input("Move LEFT arm to the middle of its range of motion, then press ENTER...")
         left_homing = self.left_bus.set_half_turn_homings(self.left_arm_motors)
 
-        # 底盘轮子固定为全圈
-        for wheel in self.base_motors:
-            left_homing[wheel] = 0
-
-        motors_left_all = self.left_arm_motors + self.base_motors
-        # 底盘轮子和 wrist_roll 是全圈电机
-        full_turn_left = [m for m in motors_left_all if m.startswith("base_") or "wrist_roll" in m]
-        unknown_left = [m for m in motors_left_all if m not in full_turn_left]
+        # wrist_roll 是全圈电机
+        full_turn_left = [m for m in self.left_arm_motors if "wrist_roll" in m]
+        unknown_left = [m for m in self.left_arm_motors if m not in full_turn_left]
 
         print("Move LEFT arm joints sequentially through full ROM. Press ENTER to stop...")
         l_mins, l_maxs = self.left_bus.record_ranges_of_motion(unknown_left)
         for m in full_turn_left:
             l_mins[m] = 0
             l_maxs[m] = 4095
+
+        # === 底盘校准 ===
+        # 底盘轮子固定为全圈，homing_offset = 0
+        chassis_homing = {}
+        c_mins = {}
+        c_maxs = {}
+        for wheel in self.base_motors:
+            chassis_homing[wheel] = 0
+            c_mins[wheel] = 0
+            c_maxs[wheel] = 4095
 
         # === 右臂校准 ===
         self.right_bus.disable_torque(self.right_arm_motors)
@@ -259,6 +277,15 @@ class LeKiwi(Robot):
                 range_max=r_maxs.get(name, 4095),
             )
 
+        for name, motor in self.chassis_bus.motors.items():
+            self.calibration[name] = MotorCalibration(
+                id=motor.id,
+                drive_mode=0,
+                homing_offset=chassis_homing.get(name, 0),
+                range_min=c_mins.get(name, 0),
+                range_max=c_maxs.get(name, 4095),
+            )
+
         # 写回校准
         calib_left = {k: v for k, v in self.calibration.items() if k in self.left_bus.motors}
         self.left_bus.write_calibration(calib_left, cache=False)
@@ -267,6 +294,10 @@ class LeKiwi(Robot):
         calib_right = {k: v for k, v in self.calibration.items() if k in self.right_bus.motors}
         self.right_bus.write_calibration(calib_right, cache=False)
         self.right_bus.calibration = calib_right
+
+        calib_chassis = {k: v for k, v in self.calibration.items() if k in self.chassis_bus.motors}
+        self.chassis_bus.write_calibration(calib_chassis, cache=False)
+        self.chassis_bus.calibration = calib_chassis
 
         self._save_calibration()
         print("Calibration saved to", self.calibration_fpath)
@@ -281,11 +312,6 @@ class LeKiwi(Robot):
             self.left_bus.write("P_Coefficient", name, 16)
             self.left_bus.write("I_Coefficient", name, 0)
             self.left_bus.write("D_Coefficient", name, 32)
-
-        # 底盘: 速度模式
-        for name in self.base_motors:
-            self.left_bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
-
         self.left_bus.enable_torque()
 
         # 右臂: 位置模式
@@ -296,13 +322,19 @@ class LeKiwi(Robot):
             self.right_bus.write("P_Coefficient", name, 16)
             self.right_bus.write("I_Coefficient", name, 0)
             self.right_bus.write("D_Coefficient", name, 32)
-
         self.right_bus.enable_torque()
+
+        # 底盘: 速度模式
+        self.chassis_bus.disable_torque()
+        self.chassis_bus.configure_motors()
+        for name in self.base_motors:
+            self.chassis_bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
+        self.chassis_bus.enable_torque()
 
     def setup_motors(self) -> None:
         # 左总线电机设置
-        print("=== Setting up LEFT bus motors (left arm + base) ===")
-        for motor in chain(reversed(self.left_arm_motors), reversed(self.base_motors)):
+        print("=== Setting up LEFT bus motors (left arm) ===")
+        for motor in reversed(self.left_arm_motors):
             input(f"Connect the LEFT controller board to the '{motor}' motor only and press enter.")
             self.left_bus.setup_motor(motor)
             print(f"'{motor}' motor id set to {self.left_bus.motors[motor].id}")
@@ -313,6 +345,13 @@ class LeKiwi(Robot):
             input(f"Connect the RIGHT controller board to the '{motor}' motor only and press enter.")
             self.right_bus.setup_motor(motor)
             print(f"'{motor}' motor id set to {self.right_bus.motors[motor].id}")
+
+        # 底盘总线电机设置
+        print("=== Setting up CHASSIS bus motors (base) ===")
+        for motor in reversed(self.base_motors):
+            input(f"Connect the CHASSIS controller board to the '{motor}' motor only and press enter.")
+            self.chassis_bus.setup_motor(motor)
+            print(f"'{motor}' motor id set to {self.chassis_bus.motors[motor].id}")
 
     @staticmethod
     def _degps_to_raw(degps: float) -> int:
@@ -494,7 +533,7 @@ class LeKiwi(Robot):
         # 读取左臂位置
         left_pos = self.left_bus.sync_read("Present_Position", self.left_arm_motors)
         # 读取底盘速度
-        base_wheel_vel = self.left_bus.sync_read("Present_Velocity", self.base_motors)
+        base_wheel_vel = self.chassis_bus.sync_read("Present_Velocity", self.base_motors)
         base_vel = self._wheel_raw_to_body(
             base_wheel_vel["base_fl"],
             base_wheel_vel["base_fr"],
@@ -554,13 +593,13 @@ class LeKiwi(Robot):
             self.left_bus.sync_write("Goal_Position", {k.replace(".pos", ""): v for k, v in left_pos.items()})
         if right_pos:
             self.right_bus.sync_write("Goal_Position", {k.replace(".pos", ""): v for k, v in right_pos.items()})
-        self.left_bus.sync_write("Goal_Velocity", base_wheel_goal_vel)
+        self.chassis_bus.sync_write("Goal_Velocity", base_wheel_goal_vel)
 
         return {**left_pos, **right_pos, **base_goal_vel}
 
     def stop_base(self):
         """停止底盘"""
-        self.left_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
+        self.chassis_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
         logger.info("Base motors stopped")
 
     def disconnect(self):
@@ -580,6 +619,11 @@ class LeKiwi(Robot):
             self.right_bus.disconnect(self.config.disable_torque_on_disconnect)
         except Exception as e:
             logger.warning(f"Right bus disconnect error (ignored): {e}")
+
+        try:
+            self.chassis_bus.disconnect(self.config.disable_torque_on_disconnect)
+        except Exception as e:
+            logger.warning(f"Chassis bus disconnect error (ignored): {e}")
         
         for cam in self.cameras.values():
             cam.disconnect()

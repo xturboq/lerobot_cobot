@@ -35,8 +35,9 @@ def lekiwi_cameras_config() -> dict[str, CameraConfig]:
 @dataclass
 class LeKiwiConfig(RobotConfig):
     """Cobot Configuration - 双臂 + 四轮麦克纳姆轮底盘"""
-    left_port: str = "/dev/cobot_follow_left"  # 左总线：左臂 + 底盘
+    left_port: str = "/dev/cobot_follow_left"  # 左总线：左臂
     right_port: str = "/dev/cobot_follow_right"  # 右总线：右臂
+    chassis_port: str = "/dev/cobot_chassis"  # 底盘总线：四轮麦克纳姆轮
 
     disable_torque_on_disconnect: bool = True
 
