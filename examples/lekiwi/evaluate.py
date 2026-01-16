@@ -26,17 +26,19 @@ from lerobot.utils.control_utils import init_keyboard_listener
 from lerobot.utils.utils import log_say
 from lerobot.utils.visualization_utils import init_rerun
 
-NUM_EPISODES = 2
+NUM_EPISODES = 5
 FPS = 30
 EPISODE_TIME_SEC = 60
-TASK_DESCRIPTION = "My task description"
-HF_MODEL_ID = "<hf_username>/<model_repo_id>"
-HF_DATASET_ID = "<hf_username>/<eval_dataset_repo_id>"
+RESET_TIME_SEC = 30
+TASK_DESCRIPTION = "Grab the purple cube"
+HF_MODEL_ID = "/home/mihu/Code/lerobot_cobot/outputs/train/act_011301/checkpoints/100000/pretrained_model"
+HF_DATASET_ID = "coola/011301_eval"
+PUSH_TO_HUB = False
 
 
 def main():
     # Create the robot configuration & robot
-    robot_config = LeKiwiClientConfig(remote_ip="172.18.134.136", id="lekiwi")
+    robot_config = LeKiwiClientConfig(remote_ip="127.0.0.1", id="lekiwi")
 
     robot = LeKiwiClient(robot_config)
 
@@ -107,12 +109,14 @@ def main():
         if not events["stop_recording"] and (
             (recorded_episodes < NUM_EPISODES - 1) or events["rerecord_episode"]
         ):
-            log_say("Reset the environment")
+            # Clear exit_early so reset loop can run fully
+            events["exit_early"] = False
+            log_say(f"Reset the environment. You have {RESET_TIME_SEC} seconds.")
             record_loop(
                 robot=robot,
                 events=events,
                 fps=FPS,
-                control_time_s=EPISODE_TIME_SEC,
+                control_time_s=RESET_TIME_SEC,
                 single_task=TASK_DESCRIPTION,
                 display_data=True,
                 teleop_action_processor=teleop_action_processor,
@@ -137,7 +141,11 @@ def main():
     listener.stop()
 
     dataset.finalize()
-    dataset.push_to_hub()
+    if PUSH_TO_HUB:
+        log_say("Pushing dataset to hub...")
+        dataset.push_to_hub()
+
+    log_say(f"Evaluation complete! {recorded_episodes} episodes saved to {HF_DATASET_ID}")
 
 
 if __name__ == "__main__":

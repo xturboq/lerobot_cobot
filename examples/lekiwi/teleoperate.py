@@ -18,7 +18,7 @@ import time
 
 from lerobot.robots.lekiwi import LeKiwiClient, LeKiwiClientConfig
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop, KeyboardTeleopConfig
-from lerobot.teleoperators.so100_leader import SO100Leader, SO100LeaderConfig
+from lerobot.teleoperators.bi_so100_leader import BiSO100Leader, BiSO100LeaderConfig
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
 
@@ -27,13 +27,17 @@ FPS = 30
 
 def main():
     # Create the robot and teleoperator configurations
-    robot_config = LeKiwiClientConfig(remote_ip="172.18.134.136", id="my_lekiwi")
-    teleop_arm_config = SO100LeaderConfig(port="/dev/tty.usbmodem585A0077581", id="my_awesome_leader_arm")
+    robot_config = LeKiwiClientConfig(remote_ip="127.0.0.1", id="my_lekiwi")
+    teleop_arm_config = BiSO100LeaderConfig(
+        left_arm_port="/dev/cobot_leader_left",
+        right_arm_port="/dev/cobot_leader_right",
+        id="my_bi_leader_arm"
+    )
     keyboard_config = KeyboardTeleopConfig(id="my_laptop_keyboard")
 
     # Initialize the robot and teleoperator
     robot = LeKiwiClient(robot_config)
-    leader_arm = SO100Leader(teleop_arm_config)
+    leader_arm = BiSO100Leader(teleop_arm_config)
     keyboard = KeyboardTeleop(keyboard_config)
 
     # Connect to the robot and teleoperator
@@ -56,7 +60,7 @@ def main():
         observation = robot.get_observation()
 
         # Get teleop action
-        # Arm
+        # Arm: BiSO100Leader 输出 left_xxx.pos / right_xxx.pos, 需要加 arm_ 前缀
         arm_action = leader_arm.get_action()
         arm_action = {f"arm_{k}": v for k, v in arm_action.items()}
         # Keyboard

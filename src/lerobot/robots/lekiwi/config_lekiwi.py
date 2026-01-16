@@ -23,10 +23,10 @@ from ..config import RobotConfig
 def lekiwi_cameras_config() -> dict[str, CameraConfig]:
     return {
         "front": OpenCVCameraConfig(
-            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.ROTATE_180
+            index_or_path="/dev/video2", fps=30, width=640, height=480,fourcc="MJPG"
         ),
         "wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video2", fps=30, width=480, height=640, rotation=Cv2Rotation.ROTATE_90
+            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.ROTATE_180,fourcc="MJPG"
         ),
     }
 
@@ -34,9 +34,26 @@ def lekiwi_cameras_config() -> dict[str, CameraConfig]:
 @RobotConfig.register_subclass("lekiwi")
 @dataclass
 class LeKiwiConfig(RobotConfig):
-    port: str = "/dev/ttyACM0"  # port to connect to the bus
+    """LeKiwi Configuration - 双臂 + 四轮麦克纳姆轮底盘"""
+    left_port: str = "/dev/cobot_follow_left"  # 左总线：左臂 + 底盘
+    right_port: str = "/dev/cobot_follow_right"  # 右总线：右臂
 
     disable_torque_on_disconnect: bool = True
+
+    # 底盘几何参数
+    wheel_radius: float = 0.05  # 轮子半径 (m)
+    lx: float = 0.195  # 前后轴距的一半 (m)
+    ly: float = 0.248  # 左右轮距的一半 (m)
+
+    # 底盘电机方向配置 (1=正向, -1=反向)
+    motor_directions: dict[str, int] = field(
+        default_factory=lambda: {
+            "base_fl": -1,  # 左前轮
+            "base_fr": 1,   # 右前轮
+            "base_rl": -1,  # 左后轮
+            "base_rr": 1,   # 右后轮
+        }
+    )
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
     # Set this to a positive scalar to have the same value for all motors, or a dictionary that maps motor
@@ -56,10 +73,10 @@ class LeKiwiHostConfig:
     port_zmq_observations: int = 5556
 
     # Duration of the application
-    connection_time_s: int = 30
+    connection_time_s: int = 6000  # 约 100 分钟
 
-    # Watchdog: stop the robot if no command is received for over 0.5 seconds.
-    watchdog_timeout_ms: int = 500
+    # Watchdog: stop the robot if no command is received for over 1.5 seconds.
+    watchdog_timeout_ms: int = 1500
 
     # If robot jitters decrease the frequency and monitor cpu load with `top` in cmd
     max_loop_freq_hz: int = 30

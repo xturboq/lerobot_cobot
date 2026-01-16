@@ -73,14 +73,26 @@ class LeKiwiClient(Robot):
 
     @cached_property
     def _state_ft(self) -> dict[str, type]:
+        """定义状态特征: 双臂位置 + 底盘速度"""
         return dict.fromkeys(
             (
-                "arm_shoulder_pan.pos",
-                "arm_shoulder_lift.pos",
-                "arm_elbow_flex.pos",
-                "arm_wrist_flex.pos",
-                "arm_wrist_roll.pos",
-                "arm_gripper.pos",
+                # 左臂
+                "arm_left_shoulder_pan.pos",
+                "arm_left_shoulder_lift.pos",
+                "arm_left_shoulder_rotate.pos",
+                "arm_left_elbow_flex.pos",
+                "arm_left_wrist_flex.pos",
+                "arm_left_wrist_roll.pos",
+                "arm_left_gripper.pos",
+                # 右臂
+                "arm_right_shoulder_pan.pos",
+                "arm_right_shoulder_lift.pos",
+                "arm_right_shoulder_rotate.pos",
+                "arm_right_elbow_flex.pos",
+                "arm_right_wrist_flex.pos",
+                "arm_right_wrist_roll.pos",
+                "arm_right_gripper.pos",
+                # 底盘
                 "x.vel",
                 "y.vel",
                 "theta.vel",
