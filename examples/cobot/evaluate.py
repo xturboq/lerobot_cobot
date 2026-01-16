@@ -19,7 +19,7 @@ from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_processors
-from lerobot.robots.lekiwi import LeKiwiClient, LeKiwiClientConfig
+from lerobot.robots.cobot import LeKiwiClient, LeKiwiClientConfig
 from lerobot.scripts.lerobot_record import record_loop
 from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import init_keyboard_listener
@@ -39,7 +39,7 @@ PUSH_TO_HUB = False
 
 def main():
     # Create the robot configuration & robot
-    robot_config = LeKiwiClientConfig(remote_ip="127.0.0.1", id="lekiwi")
+    robot_config = LeKiwiClientConfig(remote_ip="127.0.0.1", id="cobot")
 
     robot = LeKiwiClient(robot_config)
 
@@ -71,7 +71,7 @@ def main():
     )
 
     # Connect the robot
-    # To connect you already should have this script running on LeKiwi: `python -m lerobot.robots.lekiwi.lekiwi_host --robot.id=my_awesome_kiwi`
+    # To connect you already should have this script running on LeKiwi: `python -m lerobot.robots.cobot.lekiwi_host --robot.id=my_cobot`
     robot.connect()
 
     # TODO(Steven): Update this example to use pipelines
@@ -79,7 +79,7 @@ def main():
 
     # Initialize the keyboard listener and rerun visualization
     listener, events = init_keyboard_listener()
-    init_rerun(session_name="lekiwi_evaluate")
+    init_rerun(session_name="cobot_evaluate")
 
     if not robot.is_connected:
         raise ValueError("Robot is not connected!")

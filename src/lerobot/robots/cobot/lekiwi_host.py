@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,18 +18,26 @@ import base64
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 
 import cv2
+import draccus
 import zmq
 
-from .config_cobot import CobotConfig, CobotHostConfig
-from .cobot import Cobot
+from .config_lekiwi import LeKiwiConfig, LeKiwiHostConfig
+from .lekiwi import LeKiwi
 
 
-class CobotHost:
-    """Cobot Host服务 - 运行在机器人端"""
+@dataclass
+class LeKiwiServerConfig:
+    """Configuration for the Cobot host script."""
 
-    def __init__(self, config: CobotHostConfig):
+    robot: LeKiwiConfig = field(default_factory=LeKiwiConfig)
+    host: LeKiwiHostConfig = field(default_factory=LeKiwiHostConfig)
+
+
+class LeKiwiHost:
+    def __init__(self, config: LeKiwiHostConfig):
         self.zmq_context = zmq.Context()
         self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
         self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)
@@ -49,47 +57,40 @@ class CobotHost:
         self.zmq_context.term()
 
 
-def main():
-    logging.basicConfig(level=logging.INFO)
+@draccus.wrap()
+def main(cfg: LeKiwiServerConfig):
     logging.info("Configuring Cobot")
-    robot_config = CobotConfig()
-    robot_config.id = "CobotRobot"
-    robot = Cobot(robot_config)
+    cfg.robot.id = "cobot"
+    robot = LeKiwi(cfg.robot)
+    
 
     logging.info("Connecting Cobot")
     robot.connect()
 
-    logging.info("Starting Cobot HostAgent")
-    host_config = CobotHostConfig()
-    host = CobotHost(host_config)
+    logging.info("Starting HostAgent")
+    host = LeKiwiHost(cfg.host)
 
     last_cmd_time = time.time()
     watchdog_active = False
     logging.info("Waiting for commands...")
-
     try:
-        # 主循环
+        # Business logic
         start = time.perf_counter()
         duration = 0
-
         while duration < host.connection_time_s:
             loop_start_time = time.time()
-            
-            # 接收命令
             try:
                 msg = host.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
                 data = dict(json.loads(msg))
                 _action_sent = robot.send_action(data)
-
                 last_cmd_time = time.time()
                 watchdog_active = False
             except zmq.Again:
                 if not watchdog_active:
-                    logging.debug("No command available")
+                    logging.warning("No command available")
             except Exception as e:
-                logging.exception("Message fetching failed: %s", e)
+                logging.error("Message fetching failed: %s", e)
 
-            # 看门狗：如果长时间没收到命令，停止底盘
             now = time.time()
             if (now - last_cmd_time > host.watchdog_timeout_ms / 1000) and not watchdog_active:
                 logging.warning(
@@ -98,10 +99,9 @@ def main():
                 watchdog_active = True
                 robot.stop_base()
 
-            # 获取观测数据
             last_observation = robot.get_observation()
 
-            # 将图像编码为base64字符串
+            # Encode ndarrays to base64 strings
             for cam_key, _ in robot.cameras.items():
                 ret, buffer = cv2.imencode(
                     ".jpg", last_observation[cam_key], [int(cv2.IMWRITE_JPEG_QUALITY), 90]
@@ -111,18 +111,18 @@ def main():
                 else:
                     last_observation[cam_key] = ""
 
-            # 发送观测数据到远程PC
+            # Send the observation to the remote agent
             try:
                 host.zmq_observation_socket.send_string(json.dumps(last_observation), flags=zmq.NOBLOCK)
             except zmq.Again:
-                logging.debug("Dropping observation, no client connected")
+                logging.info("Dropping observation, no client connected")
 
-            # 控制循环频率
+            # Ensure a short sleep to avoid overloading the CPU.
             elapsed = time.time() - loop_start_time
+
             time.sleep(max(1 / host.max_loop_freq_hz - elapsed, 0))
             duration = time.perf_counter() - start
-        
-        print("Connection time reached.")
+        print("Cycle time reached.")
 
     except KeyboardInterrupt:
         print("Keyboard interrupt received. Exiting...")
@@ -131,9 +131,8 @@ def main():
         robot.disconnect()
         host.disconnect()
 
-    logging.info("Finished Cobot Host cleanly")
+    logging.info("Finished Cobot cleanly")
 
 
 if __name__ == "__main__":
     main()
-

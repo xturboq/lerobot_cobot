@@ -47,7 +47,7 @@ def decode_video_frames(
     video_path: Path | str,
     timestamps: list[float],
     tolerance_s: float,
-    backend: str | None = None,
+    backend: str | None = "video_reader",
 ) -> torch.Tensor:
     """
     Decodes video frames using the specified backend.

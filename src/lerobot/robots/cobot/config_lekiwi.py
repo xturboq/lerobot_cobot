@@ -1,4 +1,4 @@
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,23 +20,24 @@ from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from ..config import RobotConfig
 
 
-def cobot_cameras_config() -> dict[str, CameraConfig]:
+def lekiwi_cameras_config() -> dict[str, CameraConfig]:
     return {
-        "cam_front": OpenCVCameraConfig(
-            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+        "front": OpenCVCameraConfig(
+            index_or_path="/dev/video2", fps=30, width=640, height=480,fourcc="MJPG"
         ),
-        "cam_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video1", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+        "wrist": OpenCVCameraConfig(
+            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.ROTATE_180,fourcc="MJPG"
         ),
     }
 
 
-@RobotConfig.register_subclass("cobot")
+@RobotConfig.register_subclass("lekiwi")
 @dataclass
-class CobotConfig(RobotConfig):
-    """Cobot Host Configuration - 双机械臂 + 四轮麦克纳姆轮底盘"""
+class LeKiwiConfig(RobotConfig):
+    """Cobot Configuration - 双臂 + 四轮麦克纳姆轮底盘"""
     left_port: str = "/dev/cobot_follow_left"  # 左总线：左臂 + 底盘
     right_port: str = "/dev/cobot_follow_right"  # 右总线：右臂
+
     disable_torque_on_disconnect: bool = True
 
     # 底盘几何参数
@@ -45,7 +46,6 @@ class CobotConfig(RobotConfig):
     ly: float = 0.248  # 左右轮距的一半 (m)
 
     # 底盘电机方向配置 (1=正向, -1=反向)
-    # 左右两侧电机物理安装方向相反，需要修正
     motor_directions: dict[str, int] = field(
         default_factory=lambda: {
             "base_fl": -1,  # 左前轮
@@ -56,25 +56,24 @@ class CobotConfig(RobotConfig):
     )
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
-    # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
-    # the number of motors in your follower arms.
-    max_relative_target: int | None = None
+    # Set this to a positive scalar to have the same value for all motors, or a dictionary that maps motor
+    # names to the max_relative_target value for that motor.
+    max_relative_target: float | dict[str, float] | None = None
 
-    cameras: dict[str, CameraConfig] = field(default_factory=cobot_cameras_config)
+    cameras: dict[str, CameraConfig] = field(default_factory=lekiwi_cameras_config)
 
     # Set to `True` for backward compatibility with previous policies/dataset
     use_degrees: bool = False
 
 
 @dataclass
-class CobotHostConfig:
-    """Cobot Host 服务配置 - 运行在机器人端"""
+class LeKiwiHostConfig:
     # Network Configuration
     port_zmq_cmd: int = 5555
     port_zmq_observations: int = 5556
 
     # Duration of the application
-    connection_time_s: int = 6000
+    connection_time_s: int = 6000  # 约 100 分钟
 
     # Watchdog: stop the robot if no command is received for over 1.5 seconds.
     watchdog_timeout_ms: int = 1500
@@ -83,10 +82,9 @@ class CobotHostConfig:
     max_loop_freq_hz: int = 30
 
 
-@RobotConfig.register_subclass("cobot_client")
+@RobotConfig.register_subclass("lekiwi_client")
 @dataclass
-class CobotClientConfig(RobotConfig):
-    """Cobot Client Configuration - PC端远程控制"""
+class LeKiwiClientConfig(RobotConfig):
     # Network Configuration
     remote_ip: str
     port_zmq_cmd: int = 5555
@@ -109,8 +107,7 @@ class CobotClientConfig(RobotConfig):
         }
     )
 
-    cameras: dict[str, CameraConfig] = field(default_factory=cobot_cameras_config)
+    cameras: dict[str, CameraConfig] = field(default_factory=lekiwi_cameras_config)
 
     polling_timeout_ms: int = 15
     connect_timeout_s: int = 5
-

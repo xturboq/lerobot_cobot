@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
 # limitations under the License.
 
 import logging
-import sys
 import time
 from functools import cached_property
+from itertools import chain
 from typing import Any
 
 import numpy as np
@@ -32,22 +32,22 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from ..robot import Robot
 from ..utils import ensure_safe_goal_position
-from .config_cobot import CobotConfig
+from .config_lekiwi import LeKiwiConfig
 
 logger = logging.getLogger(__name__)
 
 
-class Cobot(Robot):
+class LeKiwi(Robot):
     """
-    Cobot: 双机械臂 + 四轮麦克纳姆轮移动底盘
+    双臂 + 四轮麦克纳姆轮移动底盘
     左总线: 左臂(7) + 底盘(4)
     右总线: 右臂(7)
     """
 
-    config_class = CobotConfig
-    name = "cobot"
+    config_class = LeKiwiConfig
+    name = "lekiwi"
 
-    def __init__(self, config: CobotConfig):
+    def __init__(self, config: LeKiwiConfig):
         super().__init__(config)
         self.config = config
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
@@ -92,7 +92,6 @@ class Cobot(Robot):
         self.left_arm_motors = [m for m in self.left_bus.motors if m.startswith("arm_left_")]
         self.base_motors = [m for m in self.left_bus.motors if m.startswith("base_")]
         self.right_arm_motors = [m for m in self.right_bus.motors if m.startswith("arm_right_")]
-
         self.cameras = make_cameras_from_configs(config.cameras)
 
         # 底盘几何参数
@@ -211,7 +210,8 @@ class Cobot(Robot):
             left_homing[wheel] = 0
 
         motors_left_all = self.left_arm_motors + self.base_motors
-        full_turn_left = [m for m in motors_left_all if m.startswith("base_")]  # 四个轮子
+        # 底盘轮子和 wrist_roll 是全圈电机
+        full_turn_left = [m for m in motors_left_all if m.startswith("base_") or "wrist_roll" in m]
         unknown_left = [m for m in motors_left_all if m not in full_turn_left]
 
         print("Move LEFT arm joints sequentially through full ROM. Press ENTER to stop...")
@@ -228,8 +228,15 @@ class Cobot(Robot):
         input("Move RIGHT arm to the middle of its range of motion, then press ENTER...")
         right_homing = self.right_bus.set_half_turn_homings(self.right_arm_motors)
 
+        # wrist_roll 是全圈电机，不需要记录 ROM
+        full_turn_right = [m for m in self.right_arm_motors if "wrist_roll" in m]
+        unknown_right = [m for m in self.right_arm_motors if m not in full_turn_right]
+
         print("Move RIGHT arm joints sequentially through full ROM. Press ENTER to stop...")
-        r_mins, r_maxs = self.right_bus.record_ranges_of_motion(self.right_arm_motors)
+        r_mins, r_maxs = self.right_bus.record_ranges_of_motion(unknown_right)
+        for m in full_turn_right:
+            r_mins[m] = 0
+            r_maxs[m] = 4095
 
         # === 合并校准数据 ===
         self.calibration = {}
@@ -279,6 +286,8 @@ class Cobot(Robot):
         for name in self.base_motors:
             self.left_bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
 
+        self.left_bus.enable_torque()
+
         # 右臂: 位置模式
         self.right_bus.disable_torque()
         self.right_bus.configure_motors()
@@ -288,24 +297,37 @@ class Cobot(Robot):
             self.right_bus.write("I_Coefficient", name, 0)
             self.right_bus.write("D_Coefficient", name, 32)
 
-    # ==================== 四轮麦克纳姆轮运动学 ====================
+        self.right_bus.enable_torque()
+
+    def setup_motors(self) -> None:
+        # 左总线电机设置
+        print("=== Setting up LEFT bus motors (left arm + base) ===")
+        for motor in chain(reversed(self.left_arm_motors), reversed(self.base_motors)):
+            input(f"Connect the LEFT controller board to the '{motor}' motor only and press enter.")
+            self.left_bus.setup_motor(motor)
+            print(f"'{motor}' motor id set to {self.left_bus.motors[motor].id}")
+
+        # 右总线电机设置
+        print("=== Setting up RIGHT bus motors (right arm) ===")
+        for motor in reversed(self.right_arm_motors):
+            input(f"Connect the RIGHT controller board to the '{motor}' motor only and press enter.")
+            self.right_bus.setup_motor(motor)
+            print(f"'{motor}' motor id set to {self.right_bus.motors[motor].id}")
 
     @staticmethod
     def _degps_to_raw(degps: float) -> int:
-        """将角速度(deg/s)转换为原始值"""
         steps_per_deg = 4096.0 / 360.0
         speed_in_steps = degps * steps_per_deg
         speed_int = int(round(speed_in_steps))
         # Cap the value to fit within signed 16-bit range (-32768 to 32767)
         if speed_int > 0x7FFF:
-            speed_int = 0x7FFF
+            speed_int = 0x7FFF  # 32767 -> maximum positive value
         elif speed_int < -0x8000:
-            speed_int = -0x8000
+            speed_int = -0x8000  # -32768 -> minimum negative value
         return speed_int
 
     @staticmethod
     def _raw_to_degps(raw_speed: int) -> float:
-        """将原始值转换为角速度(deg/s)"""
         steps_per_deg = 4096.0 / 360.0
         magnitude = raw_speed
         degps = magnitude / steps_per_deg
@@ -462,8 +484,6 @@ class Cobot(Robot):
             "theta.vel": theta,
         }
 
-    # ==================== 观测与动作 ====================
-
     def get_observation(self) -> dict[str, Any]:
         """获取观测数据: 双臂位置 + 底盘速度 + 摄像头图像"""
         if not self.is_connected:
@@ -491,9 +511,6 @@ class Cobot(Robot):
 
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")
-
-        # 过流保护
-        self.read_and_check_currents(limit_ma=2000, print_currents=False)
 
         # 读取摄像头图像
         for cam_key, cam in self.cameras.items():
@@ -543,104 +560,8 @@ class Cobot(Robot):
 
     def stop_base(self):
         """停止底盘"""
-        self.left_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=0)
+        self.left_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
         logger.info("Base motors stopped")
-
-    # ========== 键盘遥操作支持 ==========
-    # 用于 record_loop 中的 robot._from_keyboard_to_base_action()
-    
-    # 遥操作按键映射
-    teleop_keys: dict[str, str] = {
-        "forward": "w",
-        "backward": "s",
-        "left": "a",
-        "right": "d",
-        "rotate_left": "z",
-        "rotate_right": "x",
-        "speed_up": "r",
-        "speed_down": "f",
-    }
-
-    # 速度档位
-    speed_levels: list[dict] = [
-        {"xy": 0.10, "theta": 30},   # 慢速
-        {"xy": 0.15, "theta": 45},   # 中速
-        {"xy": 0.20, "theta": 60},   # 快速
-    ]
-    speed_index: int = 1  # 默认中速
-
-    def _from_keyboard_to_base_action(self, pressed_keys: dict) -> dict:
-        """
-        将键盘输入转换为底盘速度指令
-        
-        Args:
-            pressed_keys: KeyboardTeleop.get_action() 返回的字典
-            
-        Returns:
-            {"x.vel": float, "y.vel": float, "theta.vel": float}
-        """
-        keys = set(pressed_keys.keys())
-        
-        # 速度档位调节
-        if self.teleop_keys["speed_up"] in keys:
-            self.speed_index = min(self.speed_index + 1, len(self.speed_levels) - 1)
-        if self.teleop_keys["speed_down"] in keys:
-            self.speed_index = max(self.speed_index - 1, 0)
-        
-        speed = self.speed_levels[self.speed_index]
-        xy_speed = speed["xy"]      # m/s
-        theta_speed = speed["theta"]  # deg/s
-        
-        x_cmd = 0.0
-        y_cmd = 0.0
-        theta_cmd = 0.0
-        
-        if self.teleop_keys["forward"] in keys:
-            x_cmd += xy_speed
-        if self.teleop_keys["backward"] in keys:
-            x_cmd -= xy_speed
-        if self.teleop_keys["left"] in keys:
-            y_cmd += xy_speed
-        if self.teleop_keys["right"] in keys:
-            y_cmd -= xy_speed
-        if self.teleop_keys["rotate_left"] in keys:
-            theta_cmd += theta_speed
-        if self.teleop_keys["rotate_right"] in keys:
-            theta_cmd -= theta_speed
-            
-        return {
-            "x.vel": x_cmd,
-            "y.vel": y_cmd,
-            "theta.vel": theta_cmd,
-        }
-
-    def read_and_check_currents(self, limit_ma, print_currents):
-        """读取并检查电流，过流保护"""
-        scale = 6.5  # sts3215 电流转换系数
-        left_curr_raw = self.left_bus.sync_read("Present_Current", list(self.left_bus.motors.keys()))
-        right_curr_raw = self.right_bus.sync_read("Present_Current", list(self.right_bus.motors.keys()))
-
-        if print_currents:
-            left_line = "{" + ",".join(str(int(v * scale)) for v in left_curr_raw.values()) + "}"
-            print(f"Left Bus currents: {left_line}")
-            right_line = "{" + ",".join(str(int(v * scale)) for v in right_curr_raw.values()) + "}"
-            print(f"Right Bus currents: {right_line}")
-
-        for name, raw in {**left_curr_raw, **right_curr_raw}.items():
-            current_ma = float(raw) * scale
-            if current_ma > limit_ma:
-                print(f"[Overcurrent] {name}: {current_ma:.1f} mA > {limit_ma:.1f} mA, disconnecting!")
-                try:
-                    self.stop_base()
-                except Exception:
-                    pass
-                try:
-                    self.disconnect()
-                except Exception as e:
-                    print(f"[Overcurrent] disconnect error: {e}")
-                sys.exit(1)
-
-        return {k: round(v * scale, 1) for k, v in {**left_curr_raw, **right_curr_raw}.items()}
 
     def disconnect(self):
         """断开连接"""
@@ -648,10 +569,19 @@ class Cobot(Robot):
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
         self.stop_base()
-        self.left_bus.disconnect(self.config.disable_torque_on_disconnect)
-        self.right_bus.disconnect(self.config.disable_torque_on_disconnect)
+        
+        # 断开时可能会有 Overload error，加错误处理避免崩溃
+        try:
+            self.left_bus.disconnect(self.config.disable_torque_on_disconnect)
+        except Exception as e:
+            logger.warning(f"Left bus disconnect error (ignored): {e}")
+        
+        try:
+            self.right_bus.disconnect(self.config.disable_torque_on_disconnect)
+        except Exception as e:
+            logger.warning(f"Right bus disconnect error (ignored): {e}")
+        
         for cam in self.cameras.values():
             cam.disconnect()
 
         logger.info(f"{self} disconnected.")
-
